@@ -1,0 +1,1040 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LCOS Calculator — ESGC v2024</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+<style>
+  :root {
+    --blue-dark: #1a2d4f;
+    --blue-mid:  #2563eb;
+    --blue-light:#dbeafe;
+    --green:     #16a34a;
+    --gray-bg:   #f8fafc;
+    --border:    #e2e8f0;
+  }
+  body { background: var(--gray-bg); font-size: 0.875rem; }
+
+  /* ── 헤더 ── */
+  .app-header {
+    background: var(--blue-dark);
+    color: #fff;
+    padding: 0.75rem 1.5rem;
+    display: flex; align-items: center; gap: 0.75rem;
+  }
+  .app-header h1 { font-size: 1.1rem; font-weight: 700; margin: 0; letter-spacing: .03em; }
+  .app-header small { opacity: .6; font-size: .75rem; }
+
+  /* ── 입력 패널 ── */
+  .input-panel {
+    height: calc(100vh - 56px);
+    overflow-y: auto;
+    border-right: 1px solid var(--border);
+    background: #fff;
+    padding: 0;
+  }
+  .section-title {
+    font-size: .7rem; font-weight: 700; letter-spacing: .08em;
+    text-transform: uppercase; color: #64748b;
+    padding: .6rem 1rem .3rem;
+    border-bottom: 1px solid var(--border);
+    background: var(--gray-bg);
+    position: sticky; top: 0; z-index: 1;
+  }
+  .section-body { padding: .75rem 1rem; }
+  .form-label { font-weight: 600; margin-bottom: .15rem; color: #374151; }
+  .form-control, .form-select { font-size: .825rem; }
+  .input-group-text { font-size: .75rem; min-width: 52px; justify-content: center; background: #f1f5f9; color: #475569; }
+
+  /* ── DB 로드 ── */
+  .db-section { background: #f0f9ff; border-bottom: 2px solid #bae6fd; }
+  .db-section .section-title { background: #e0f2fe; color: #0369a1; }
+  .btn-db { background: #0284c7; color: #fff; border: none; }
+  .btn-db:hover { background: #0369a1; color: #fff; }
+
+  /* ── 자본비용 테이블 ── */
+  .capital-table { width: 100%; border-collapse: collapse; }
+  .capital-table th { font-size: .7rem; color: #64748b; font-weight: 600; padding: .25rem .5rem; border-bottom: 1px solid var(--border); }
+  .capital-table td { padding: .2rem .4rem; vertical-align: middle; }
+  .capital-table input { font-size: .8rem; }
+  .unit-badge { font-size: .65rem; padding: .15rem .4rem; background: #f1f5f9; color: #475569; border-radius: 4px; white-space: nowrap; }
+
+  /* ── 계산 버튼 ── */
+  .btn-calc { background: var(--blue-mid); color: #fff; font-weight: 700; font-size: .95rem; letter-spacing: .02em; border: none; }
+  .btn-calc:hover { background: #1d4ed8; color: #fff; }
+
+  /* ── 잠금 상태 ── */
+  #lockable-fields.is-locked input,
+  #lockable-fields.is-locked select { background: #f1f5f9 !important; color: #94a3b8 !important; pointer-events: none; }
+  #lockable-fields.is-locked button { pointer-events: none; opacity: .4; }
+  .lock-bar { display:none; background:#fef9c3; border-bottom:1px solid #fde68a; padding:.3rem 1rem; font-size:.75rem; color:#92400e; }
+  .lock-bar.show { display:flex; align-items:center; gap:.5rem; }
+
+  /* ── 결과 패널 ── */
+  .results-panel {
+    height: calc(100vh - 56px);
+    overflow-y: auto;
+    padding: 1.25rem 1.5rem;
+  }
+
+  /* ── LCOS 표시 ── */
+  .lcos-card {
+    background: linear-gradient(135deg, var(--blue-dark) 0%, #1e40af 100%);
+    color: #fff; border-radius: 12px; padding: 1.5rem 2rem;
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 1rem;
+  }
+  .lcos-value { font-size: 2.8rem; font-weight: 800; letter-spacing: -.02em; }
+  .lcos-unit  { font-size: .9rem; opacity: .75; margin-top: .2rem; }
+  .lcos-label { font-size: .8rem; opacity: .65; text-transform: uppercase; letter-spacing: .06em; }
+  .lcos-rte   { font-size: 1.1rem; font-weight: 600; opacity: .85; }
+
+  /* ── 메트릭 카드 ── */
+  .metric-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: .6rem; margin-bottom: 1rem; }
+  .metric-card { background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: .6rem .9rem; }
+  .metric-card .label { font-size: .65rem; color: #64748b; text-transform: uppercase; letter-spacing: .05em; }
+  .metric-card .sub-label { font-size: .6rem; color: #94a3b8; margin-top: 2px; font-style: italic; }
+  .metric-card .value { font-size: 1rem; font-weight: 700; color: #1e293b; }
+
+  /* ── 비용 구성 차트 ── */
+  .chart-card { background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 1rem; margin-bottom: 1rem; }
+  .chart-card h6 { font-size: .75rem; font-weight: 700; color: #374151; text-transform: uppercase; letter-spacing: .06em; margin-bottom: .75rem; }
+
+  /* ── 비용 테이블 ── */
+  .cost-table { width: 100%; border-collapse: collapse; font-size: .82rem; }
+  .cost-table th { font-size: .68rem; color: #64748b; font-weight: 600; padding: .3rem .6rem; border-bottom: 2px solid var(--border); text-align: right; }
+  .cost-table th:first-child { text-align: left; }
+  .cost-table td { padding: .3rem .6rem; border-bottom: 1px solid #f1f5f9; text-align: right; }
+  .cost-table td:first-child { text-align: left; font-weight: 500; }
+  .cost-table tr:last-child td { font-weight: 700; border-top: 2px solid var(--border); }
+  .cost-table .pct { color: #64748b; font-size: .75rem; }
+
+  /* ── 일정 태그 ── */
+  .year-badge { display: inline-block; background: #dbeafe; color: #1d4ed8; font-size: .65rem; border-radius: 4px; padding: .1rem .35rem; margin: 1px; }
+  .sched-row td { padding: .3rem .6rem; border-bottom: 1px solid #f8fafc; font-size: .8rem; }
+
+  /* ── placeholder ── */
+  .placeholder-msg { text-align: center; padding: 4rem 2rem; color: #94a3b8; }
+  .placeholder-msg i { font-size: 3rem; display: block; margin-bottom: 1rem; }
+
+  /* ── spinner ── */
+  .spinner-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.3); z-index: 999; align-items: center; justify-content: center; }
+  .spinner-overlay.show { display: flex; }
+</style>
+</head>
+<body>
+
+<!-- 헤더 -->
+<div class="app-header">
+  <i class="bi bi-battery-charging fs-5"></i>
+  <div>
+    <h1>LCOS Calculator</h1>
+    <small>ESGC Cost &amp; Performance Database v2024 · PNNL 방법론</small>
+  </div>
+</div>
+
+<div class="container-fluid p-0">
+<div class="row g-0">
+
+<!-- ══════════════════════ 입력 패널 ══════════════════════ -->
+<div class="col-lg-5 input-panel">
+
+  <!-- ① DB 불러오기 -->
+  {% if db_available %}
+  <div class="db-section">
+    <div class="section-title"><i class="bi bi-database me-1"></i>DB 파라미터 불러오기</div>
+    <div class="section-body">
+      <div class="row g-2 align-items-end">
+        <div class="col-5">
+          <label class="form-label">기술</label>
+          <select id="db-tech" class="form-select form-select-sm" onchange="onDbTechChange()">
+            <option value="">선택</option>
+          </select>
+        </div>
+        <div class="col-2">
+          <label class="form-label">연도</label>
+          <select id="db-year" class="form-select form-select-sm"><option>—</option></select>
+        </div>
+        <div class="col-2">
+          <label class="form-label">MW</label>
+          <select id="db-mw" class="form-select form-select-sm"><option>—</option></select>
+        </div>
+        <div class="col-1">
+          <label class="form-label">hr</label>
+          <select id="db-hr" class="form-select form-select-sm"><option>—</option></select>
+        </div>
+        <div class="col-2">
+          <label class="form-label">추정</label>
+          <select id="db-est" class="form-select form-select-sm"><option>—</option></select>
+        </div>
+      </div>
+      <div class="d-flex gap-2 mt-2">
+        <button class="btn btn-db btn-sm flex-fill" onclick="loadFromDb()">
+          <i class="bi bi-download me-1"></i>엑셀 DB에서 값 불러오기
+        </button>
+        <button class="btn btn-outline-secondary btn-sm flex-fill" id="btn-manual" onclick="onManualClick()">
+          <i class="bi bi-pencil me-1"></i>직접 입력하기
+        </button>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- 잠금 알림바 -->
+  <div class="lock-bar" id="lock-bar">
+    <i class="bi bi-lock-fill"></i>
+    <span>DB에서 불러온 값입니다. 수정하려면 <strong>직접 입력하기</strong>를 클릭하세요.</span>
+  </div>
+
+  <!-- ② 기술 / 성능 파라미터 -->
+  <div id="lockable-fields">
+  <div class="section-title"><i class="bi bi-cpu me-1"></i>기술 &amp; 성능 파라미터</div>
+  <div class="section-body">
+    <div class="row g-2">
+      <input type="hidden" id="storage_type">
+      <div class="col-6">
+        <label class="form-label">정격 출력</label>
+        <div class="input-group input-group-sm">
+          <input type="number" id="power_mw" class="form-control" min="0.001" step="any">
+          <span class="input-group-text">MW</span>
+        </div>
+      </div>
+      <div class="col-6">
+        <label class="form-label">저장 시간</label>
+        <div class="input-group input-group-sm">
+          <input type="number" id="duration_hr" class="form-control" min="0.1" step="any">
+          <span class="input-group-text">hr</span>
+        </div>
+      </div>
+      <div class="col-6">
+        <label class="form-label">DC 왕복효율 (RTE)</label>
+        <div class="input-group input-group-sm">
+          <input type="number" id="rte_dc" class="form-control" min="0" max="1" step="0.001">
+          <span class="input-group-text">0–1</span>
+        </div>
+      </div>
+      <div class="col-6">
+        <label class="form-label">방전 심도 (DOD)</label>
+        <div class="input-group input-group-sm">
+          <input type="number" id="dod" class="form-control" min="0" max="1" step="0.001">
+          <span class="input-group-text">0–1</span>
+        </div>
+      </div>
+
+      <!-- LFP/NMC 전용 -->
+      <div class="col-6 field-secondary_dod" style="display:none">
+        <label class="form-label">2차 DOD (Secondary)</label>
+        <div class="input-group input-group-sm">
+          <input type="number" id="secondary_dod" class="form-control" step="0.001">
+          <span class="input-group-text">0–1</span>
+        </div>
+      </div>
+      <div class="col-6 field-cycle_life_sec" style="display:none">
+        <label class="form-label">2차 DOD 사이클 수명</label>
+        <div class="input-group input-group-sm">
+          <input type="number" id="cycle_life_at_secondary_dod" class="form-control" step="any">
+          <span class="input-group-text">cyc</span>
+        </div>
+      </div>
+
+      <!-- 사이클 수명 (LFP/NMC/ZINC/LEAD) -->
+      <div class="col-6 field-cycle_life" style="display:none">
+        <label class="form-label">1차 DOD 사이클 수명</label>
+        <div class="input-group input-group-sm">
+          <input type="number" id="cycle_life_at_primary_dod" class="form-control" step="any">
+          <span class="input-group-text">cyc</span>
+        </div>
+      </div>
+
+      <div class="col-6">
+        <label class="form-label">휴지 (충전 전)</label>
+        <div class="input-group input-group-sm">
+          <input type="number" id="rest_charge_hr" class="form-control" min="0" step="any">
+          <span class="input-group-text">hr</span>
+        </div>
+      </div>
+      <div class="col-6">
+        <label class="form-label">휴지 (방전 후)</label>
+        <div class="input-group input-group-sm">
+          <input type="number" id="rest_discharge_hr" class="form-control" min="0" step="any">
+          <span class="input-group-text">hr</span>
+        </div>
+      </div>
+      <div class="col-4">
+        <label class="form-label">달력 수명</label>
+        <div class="input-group input-group-sm">
+          <input type="number" id="calendar_life_yr" class="form-control" min="1" step="1">
+          <span class="input-group-text">yr</span>
+        </div>
+      </div>
+      <div class="col-4">
+        <label class="form-label">사업 기간 (PL)</label>
+        <div class="input-group input-group-sm">
+          <input type="number" id="project_life_yr" class="form-control" min="1" step="1">
+          <span class="input-group-text">yr</span>
+        </div>
+      </div>
+      <div class="col-4">
+        <label class="form-label">연간 사이클 한도</label>
+        <div class="input-group input-group-sm">
+          <input type="number" id="cycle_limit_per_yr" class="form-control" min="1" step="1">
+          <span class="input-group-text">/yr</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ③ 자본비용 (Capital Cost) -->
+  <div class="section-title"><i class="bi bi-cash-stack me-1"></i>자본비용 (Capital Cost)</div>
+  <div class="section-body p-2">
+    <table class="capital-table" id="capital-table">
+      <thead>
+        <tr><th>항목</th><th style="width:110px">단가</th><th style="width:58px">단위</th></tr>
+      </thead>
+      <tbody id="capital-tbody"></tbody>
+    </table>
+  </div>
+
+  <!-- ④ O&M / 해체 / 보증 -->
+  <div class="section-title"><i class="bi bi-tools me-1"></i>O&amp;M · 해체 · 보증</div>
+  <div class="section-body">
+    <div class="row g-2">
+      <div class="col-4">
+        <label class="form-label">고정 O&M</label>
+        <div class="input-group input-group-sm">
+          <input type="number" id="fixed_om_per_kw_yr" class="form-control" min="0" step="any">
+          <span class="input-group-text">$/kW-yr</span>
+        </div>
+      </div>
+      <div class="col-4">
+        <label class="form-label">변동 O&M</label>
+        <div class="input-group input-group-sm">
+          <input type="number" id="variable_om_per_kwh" class="form-control" min="0" step="any">
+          <span class="input-group-text">$/kWh</span>
+        </div>
+      </div>
+      <div class="col-4">
+        <label class="form-label">전력 구매단가</label>
+        <div class="input-group input-group-sm">
+          <input type="number" id="electricity_cost_per_kwh" class="form-control" min="0" step="any">
+          <span class="input-group-text">$/kWh</span>
+        </div>
+      </div>
+
+      <!-- 보증 -->
+      <div class="col-6">
+        <label class="form-label">보증비 (Warranty)</label>
+        <div class="input-group input-group-sm">
+          <input type="number" id="warranty_per_kwh" class="form-control" min="0" step="any">
+          <span class="input-group-text">$/kWh</span>
+        </div>
+      </div>
+      <div class="col-6">
+        <label class="form-label">보증 지연 기간</label>
+        <div class="input-group input-group-sm">
+          <input type="number" id="warranty_delay_yr" class="form-control" min="0" step="1">
+          <span class="input-group-text">yr</span>
+        </div>
+      </div>
+
+      <!-- 해체비 -->
+      <div class="col-12 mt-1">
+        <label class="form-label">해체비 항목</label>
+        <table class="capital-table">
+          <thead><tr><th>항목</th><th style="width:110px">단가</th><th style="width:58px">단위</th><th style="width:28px"></th></tr></thead>
+          <tbody id="decomm-tbody"></tbody>
+        </table>
+        <button class="btn btn-outline-secondary btn-sm mt-1 py-0" onclick="addDecommRow()">
+          <i class="bi bi-plus-sm"></i> 항목 추가
+        </button>
+      </div>
+
+      <!-- VRF 교체 항목 -->
+      <div class="col-12 mt-1 field-replacement" style="display:none">
+        <label class="form-label">Stack 교체 항목 (VRF)</label>
+        <table class="capital-table">
+          <thead><tr><th>항목</th><th style="width:110px">단가</th><th style="width:58px">단위</th><th style="width:28px"></th></tr></thead>
+          <tbody id="replacement-tbody"></tbody>
+        </table>
+        <button class="btn btn-outline-secondary btn-sm mt-1 py-0" onclick="addReplRow()">
+          <i class="bi bi-plus-sm"></i> 항목 추가
+        </button>
+      </div>
+    </div>
+  </div>
+  </div><!-- /lockable-fields -->
+
+  <!-- ⑤ 재무 파라미터 -->
+  <div class="section-title"><i class="bi bi-percent me-1"></i>재무 파라미터</div>
+  <div class="section-body">
+    <div class="row g-2">
+      <div class="col-4">
+        <label class="form-label">분석 기간 (N)</label>
+        <div class="input-group input-group-sm">
+          <input type="number" id="analysis_period_n" class="form-control" value="20" min="1" step="1">
+          <span class="input-group-text">yr</span>
+        </div>
+      </div>
+      <div class="col-4">
+        <label class="form-label">인플레이션율</label>
+        <div class="input-group input-group-sm">
+          <input type="number" id="inflation" class="form-control" value="2.8" step="0.1">
+          <span class="input-group-text">%</span>
+        </div>
+      </div>
+      <div class="col-4">
+        <label class="form-label">O&M 실질 상승률</label>
+        <div class="input-group input-group-sm">
+          <input type="number" id="om_escalation_real" class="form-control" value="2.0" step="0.1">
+          <span class="input-group-text">%</span>
+        </div>
+      </div>
+      <div class="col-4">
+        <label class="form-label">명목 이자율 (부채)</label>
+        <div class="input-group input-group-sm">
+          <input type="number" id="interest_rate_nominal" class="form-control" value="8.0" step="0.1">
+          <span class="input-group-text">%</span>
+        </div>
+      </div>
+      <div class="col-4">
+        <label class="form-label">자기자본비용</label>
+        <div class="input-group input-group-sm">
+          <input type="number" id="coe_nominal" class="form-control" value="13.0" step="0.1">
+          <span class="input-group-text">%</span>
+        </div>
+      </div>
+      <div class="col-4">
+        <label class="form-label">부채 비율</label>
+        <div class="input-group input-group-sm">
+          <input type="number" id="debt_fraction" class="form-control" value="50.0" step="0.1">
+          <span class="input-group-text">%</span>
+        </div>
+      </div>
+      <div class="col-4">
+        <label class="form-label">세율</label>
+        <div class="input-group input-group-sm">
+          <input type="number" id="tax_rate" class="form-control" value="25.7" step="0.1">
+          <span class="input-group-text">%</span>
+        </div>
+      </div>
+      <div class="col-4">
+        <label class="form-label">재산세율</label>
+        <div class="input-group input-group-sm">
+          <input type="number" id="property_tax_rate" class="form-control" value="0.84" step="0.01">
+          <span class="input-group-text">%</span>
+        </div>
+      </div>
+      <div class="col-4">
+        <label class="form-label">보험료율</label>
+        <div class="input-group input-group-sm">
+          <input type="number" id="insurance_rate" class="form-control" value="0.40" step="0.01">
+          <span class="input-group-text">%</span>
+        </div>
+      </div>
+      <div class="col-12 mt-1">
+        <div class="d-flex gap-4">
+          <div class="form-check">
+            <input type="checkbox" id="prevailing_wage" class="form-check-input">
+            <label class="form-check-label" for="prevailing_wage">Prevailing Wage (ITC 30%)</label>
+          </div>
+          <div class="form-check">
+            <input type="checkbox" id="energy_community" class="form-check-input">
+            <label class="form-check-label" for="energy_community">Energy Community +10%</label>
+          </div>
+          <div class="form-check">
+            <input type="checkbox" id="domestic_content" class="form-check-input">
+            <label class="form-check-label" for="domestic_content">Domestic Content +10%</label>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 계산 버튼 -->
+  <div class="px-3 py-3 border-top">
+    <button class="btn btn-calc w-100 py-2" onclick="runCalculate()">
+      <i class="bi bi-calculator me-1"></i>LCOS 계산
+    </button>
+    <div id="error-msg" class="alert alert-danger mt-2 py-2 mb-0" style="display:none; font-size:.8rem;"></div>
+  </div>
+
+</div><!-- /input-panel -->
+
+<!-- ══════════════════════ 결과 패널 ══════════════════════ -->
+<div class="col-lg-7 results-panel">
+
+  <!-- 초기 placeholder -->
+  <div id="placeholder" class="placeholder-msg">
+    <i class="bi bi-bar-chart-steps"></i>
+    <p class="fw-semibold">파라미터를 입력하고 LCOS 계산 버튼을 눌러주세요.</p>
+    <p class="small">DB에서 불러온 값으로 계산하거나 직접 입력할 수 있습니다.</p>
+  </div>
+
+  <!-- 결과 (초기엔 숨김) -->
+  <div id="results" style="display:none">
+
+    <!-- LCOS 카드 -->
+    <div class="lcos-card">
+      <div>
+        <div class="lcos-label">충전비 기반 LCOS</div>
+        <div class="lcos-value"><span id="r-lcos">—</span> <span style="font-size:1rem;font-weight:400;">$/kWh</span></div>
+        <div class="lcos-unit" style="font-size:.7rem; color:#94a3b8; font-style:italic;">전력구매비 = 총 충전비</div>
+      </div>
+    </div>
+
+    <!-- 핵심 지표 2×4 -->
+    <div class="metric-grid">
+      <div class="metric-card"><div class="label">충방전 손실 기반 LCOS</div><div class="value" id="r-lcos-rte">—</div><div class="label">$/kWh</div><div class="sub-label">전력구매비 = 충전비 − 판매비</div></div>
+      <div class="metric-card"><div class="label">ARR</div><div class="value" id="r-arr">—</div><div class="label">$/yr</div></div>
+      <div class="metric-card"><div class="label">AEO</div><div class="value" id="r-aeo">—</div><div class="label">kWh/yr</div></div>
+      <div class="metric-card"><div class="label">OCC</div><div class="value" id="r-occ">—</div><div class="label">$</div></div>
+      <div class="metric-card"><div class="label">FCR</div><div class="value" id="r-fcr">—</div><div class="label">%</div></div>
+      <div class="metric-card"><div class="label">WACC (명목)</div><div class="value" id="r-wacc-nom">—</div><div class="label">%</div></div>
+      <div class="metric-card"><div class="label">WACC (실질)</div><div class="value" id="r-wacc-real">—</div><div class="label">%</div></div>
+      <div class="metric-card"><div class="label">ITC</div><div class="value" id="r-itc">—</div><div class="label">%</div></div>
+    </div>
+
+    <!-- 비용 구성 차트 -->
+    <div class="chart-card">
+      <h6><i class="bi bi-bar-chart-horizontal me-1"></i>비용 구성 (연환산 $/kWh)</h6>
+      <canvas id="cost-chart" height="160"></canvas>
+    </div>
+
+    <!-- 비용 구성 테이블 -->
+    <div class="chart-card">
+      <h6><i class="bi bi-table me-1"></i>비용 구성 상세</h6>
+      <ul class="nav nav-tabs nav-sm mb-2" id="cost-tabs">
+        <li class="nav-item"><a class="nav-link active py-1 px-3" onclick="showCostTab('ann',this)">연환산 ($/yr)</a></li>
+        <li class="nav-item"><a class="nav-link py-1 px-3" onclick="showCostTab('npv',this)">NPV ($)</a></li>
+      </ul>
+      <table class="cost-table">
+        <thead>
+          <tr><th>비용 항목</th><th id="cost-col-head" style="width:120px">연환산 ($/yr)</th><th style="width:70px">비율 (%)</th></tr>
+        </thead>
+        <tbody id="cost-tbody"></tbody>
+      </table>
+    </div>
+
+    <!-- ARMO / 보증 / 해체 일정 -->
+    <div class="chart-card">
+      <h6><i class="bi bi-calendar3 me-1"></i>ARMO · 보증 · 해체 일정</h6>
+      <div id="schedule-area"></div>
+    </div>
+
+  </div><!-- /results -->
+</div><!-- /results-panel -->
+
+</div><!-- /row -->
+</div><!-- /container -->
+
+<!-- Spinner -->
+<div class="spinner-overlay" id="spinner">
+  <div class="spinner-border text-light" style="width:3rem;height:3rem;"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script>
+// ── 서버 데이터 ──────────────────────────────────────────────
+const TECHS          = {{ techs|safe }};
+const DB_TO_CODE     = {{ db_to_code|safe }};
+const CODE_TO_DB     = {{ code_to_db|safe }};
+const CAPITAL_SCHEMA = {{ capital_schema|safe }};
+
+// ── 상태 ────────────────────────────────────────────────────
+let costChart = null;
+let lastResult = null;
+let costTabMode = 'ann';
+
+// ── 초기화 ──────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  // 기술 드롭다운 채우기
+  setFieldsLocked(true);  // 기본값: 편집 불가
+
+  // DB 기술 드롭다운 채우기
+  const dbSel = document.getElementById('db-tech');
+  if (dbSel) {
+    for (const dbTech of Object.keys(DB_TO_CODE)) {
+      const opt = document.createElement('option');
+      opt.value = dbTech; opt.textContent = dbTech;
+      dbSel.appendChild(opt);
+    }
+    fetchDbOptions();
+  }
+});
+
+// ── DB 옵션 로드 ─────────────────────────────────────────────
+let dbOptions = {};
+async function fetchDbOptions() {
+  const res = await fetch('/api/db_options');
+  dbOptions = await res.json();
+}
+
+function onDbTechChange() {
+  const tech = document.getElementById('db-tech').value;
+  const opt  = dbOptions[tech] || {};
+  populateSel('db-year', opt.years    || [], '연도');
+  populateSel('db-mw',   opt.powers   || [], 'MW');
+  populateSel('db-hr',   opt.durations|| [], 'hr');
+  populateSel('db-est',  opt.estimates|| [], '추정');
+
+  // 기술 변경 시 storage_type 갱신 → 자본비용 항목·조건부 필드 자동 새로고침
+  const code = DB_TO_CODE[tech];
+  if (code) {
+    document.getElementById('storage_type').value = code;
+    onTechChange();
+  }
+}
+
+function populateSel(id, values, label) {
+  const sel = document.getElementById(id);
+  if (!sel) return;
+  sel.innerHTML = `<option value="">— ${label} —</option>`;
+  for (const v of values) {
+    const opt = document.createElement('option');
+    opt.value = v; opt.textContent = v;
+    sel.appendChild(opt);
+  }
+}
+
+async function loadFromDb() {
+  const tech = document.getElementById('db-tech').value;
+  const year = document.getElementById('db-year').value;
+  const mw   = document.getElementById('db-mw').value;
+  const hr   = document.getElementById('db-hr').value;
+  const est  = document.getElementById('db-est').value;
+  if (!tech || !year || !mw || !hr || !est) { alert('모든 DB 필드를 선택하세요.'); return; }
+
+  showSpinner(true);
+  try {
+    const res  = await fetch('/api/load_from_db', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({tech, year, power_mw: mw, duration_hr: hr, estimate: est})
+    });
+    const data = await res.json();
+    if (data.error) { alert('DB 오류: ' + data.error); return; }
+    fillFormFromDb(data);
+  } catch(e) { alert('오류: ' + e); }
+  finally { showSpinner(false); }
+}
+
+function fillFormFromDb(data) {
+  // 기술 코드 설정
+  const sel = document.getElementById('storage_type');
+  sel.value = data.tech_code;
+  onTechChange();
+
+  // TechParams
+  const tp = data.tech_params;
+  setVal('power_mw',                   tp.power_mw);
+  setVal('duration_hr',                tp.duration_hr);
+  setVal('rte_dc',                     tp.rte_dc);
+  setVal('dod',                        tp.dod);
+  setVal('secondary_dod',              tp.secondary_dod ?? '');
+  setVal('rest_charge_hr',             tp.rest_charge_hr);
+  setVal('rest_discharge_hr',          tp.rest_discharge_hr);
+  setVal('calendar_life_yr',           tp.calendar_life_yr);
+  setVal('project_life_yr',            tp.project_life_yr);
+  setVal('cycle_limit_per_yr',         tp.cycle_limit_per_yr);
+  setVal('cycle_life_at_primary_dod',  tp.cycle_life_at_primary_dod ?? '');
+  setVal('cycle_life_at_secondary_dod',tp.cycle_life_at_secondary_dod ?? '');
+
+  // Capital items
+  fillCapitalFromList(data.capital_items);
+
+  // O&M
+  setVal('fixed_om_per_kw_yr',  data.fom);
+  setVal('warranty_per_kwh',    data.warranty_per_kwh);
+  setVal('warranty_delay_yr',   data.warranty_delay_yr);
+
+  // Decomm
+  const decommBody = document.getElementById('decomm-tbody');
+  decommBody.innerHTML = '';
+  for (const it of data.decomm_items || []) {
+    appendDecommRow(it.name, it.value, it.unit, decommBody);
+  }
+
+  // Replacement (VRF)
+  const replBody = document.getElementById('replacement-tbody');
+  replBody.innerHTML = '';
+  for (const it of data.replacement_items || []) {
+    appendReplRow(it.name, it.value, it.unit, replBody);
+  }
+
+  setFieldsLocked(true);  // DB 로드 후 편집 잠금
+}
+
+// ── 잠금 / 해제 ──────────────────────────────────────────────
+function onManualClick() {
+  const missing = [];
+  if (!document.getElementById('db-tech').value) missing.push('저장 기술');
+  if (!document.getElementById('db-year').value || document.getElementById('db-year').value === '—') missing.push('연도');
+  if (!document.getElementById('db-mw').value   || document.getElementById('db-mw').value   === '—') missing.push('출력 (MW)');
+  if (!document.getElementById('db-hr').value   || document.getElementById('db-hr').value   === '—') missing.push('지속 시간 (hr)');
+  if (!document.getElementById('db-est').value  || document.getElementById('db-est').value  === '—') missing.push('추정 (High/Low/Point)');
+
+  if (missing.length > 0) {
+    alert(`직접 입력하기 전에 먼저 DB에서 다음 항목을 선택하고 값을 불러오세요:\n\n  • ${missing.join('\n  • ')}\n\n엑셀 DB에서 값 불러오기 버튼을 눌러 기본값을 채운 후 수정하시기 바랍니다.`);
+    return;
+  }
+  // db-tech → storage_type 코드 설정 후 자본비용 테이블 갱신
+  const dbTech = document.getElementById('db-tech').value;
+  const code   = DB_TO_CODE[dbTech];
+  if (code) {
+    document.getElementById('storage_type').value = code;
+    onTechChange();
+  }
+  // DB에서 선택한 정격 출력·지속시간 자동 채우기
+  const dbMw = document.getElementById('db-mw').value;
+  const dbHr = document.getElementById('db-hr').value;
+  if (dbMw && dbMw !== '—') document.getElementById('power_mw').value   = dbMw;
+  if (dbHr && dbHr !== '—') document.getElementById('duration_hr').value = dbHr;
+  setFieldsLocked(false);
+}
+
+function setFieldsLocked(locked) {
+  const wrap = document.getElementById('lockable-fields');
+  const bar  = document.getElementById('lock-bar');
+  const btn  = document.getElementById('btn-manual');
+  if (!wrap) return;
+
+  wrap.classList.toggle('is-locked', locked);
+  if (bar) bar.classList.toggle('show', locked);
+
+  wrap.querySelectorAll('input:not([type=hidden]), select').forEach(el => {
+    if (locked) { el.setAttribute('data-prev-readonly', el.readOnly); el.readOnly = true; }
+    else { el.readOnly = false; }
+    if (el.tagName === 'SELECT') el.disabled = locked;
+  });
+  wrap.querySelectorAll('button').forEach(el => el.disabled = locked);
+
+  if (btn) {
+    btn.classList.toggle('btn-warning',           locked);
+    btn.classList.toggle('btn-outline-secondary', !locked);
+    btn.disabled = false;  // 항상 클릭 가능
+  }
+}
+
+// ── 기술 변경 시 ─────────────────────────────────────────────
+function onTechChange() {
+  const code   = document.getElementById('storage_type').value;
+  const isLi   = ['LFP','NMC'].includes(code);
+  const isCyc  = ['LFP','NMC','ZINC','LEAD'].includes(code);
+  const isVRF  = code === 'VRF';
+
+  toggle('.field-secondary_dod', isLi);
+  toggle('.field-cycle_life_sec', isLi);
+  toggle('.field-cycle_life',     isCyc);
+  toggle('.field-replacement',    isVRF);
+
+  updateCapitalTable(code);
+}
+
+function toggle(selector, show) {
+  document.querySelectorAll(selector).forEach(el => el.style.display = show ? '' : 'none');
+}
+
+// ── 자본비용 테이블 업데이트 ─────────────────────────────────
+function updateCapitalTable(code) {
+  const schema = CAPITAL_SCHEMA[code] || [];
+  const tbody  = document.getElementById('capital-tbody');
+  const existing = {};
+  tbody.querySelectorAll('tr').forEach(tr => {
+    const name = tr.dataset.name;
+    const val  = tr.querySelector('input').value;
+    if (name && val) existing[name] = val;
+  });
+  tbody.innerHTML = '';
+  for (const f of schema) {
+    const tr = document.createElement('tr');
+    tr.dataset.name = f.name;
+    tr.dataset.unit = f.unit;
+    tr.innerHTML = `
+      <td class="text-truncate" style="max-width:130px" title="${f.name}">${f.name}</td>
+      <td><input type="number" class="form-control form-control-sm" step="any" value="${existing[f.name]||''}"></td>
+      <td><span class="unit-badge">${f.unit}</span></td>`;
+    tbody.appendChild(tr);
+  }
+}
+
+function fillCapitalFromList(items) {
+  const tbody = document.getElementById('capital-tbody');
+  for (const tr of tbody.querySelectorAll('tr')) {
+    const name  = tr.dataset.name;
+    const match = items.find(it => it.name === name);
+    if (match) tr.querySelector('input').value = match.value;
+  }
+}
+
+// ── 해체비 / 교체 행 ─────────────────────────────────────────
+function appendDecommRow(name='', value='', unit='$/kWh', body=null) {
+  body = body || document.getElementById('decomm-tbody');
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td><input type="text" class="form-control form-control-sm" value="${name}"></td>
+    <td><input type="number" class="form-control form-control-sm" step="any" value="${value}"></td>
+    <td>
+      <select class="form-select form-select-sm">
+        <option ${unit==='$/kWh'?'selected':''}>$/kWh</option>
+        <option ${unit==='$/kW' ?'selected':''}>$/kW</option>
+      </select>
+    </td>
+    <td><button class="btn btn-sm btn-outline-danger py-0 px-1" onclick="this.closest('tr').remove()"><i class="bi bi-x"></i></button></td>`;
+  body.appendChild(tr);
+}
+function addDecommRow() { appendDecommRow(); }
+
+function appendReplRow(name='', value='', unit='$/kW', body=null) {
+  body = body || document.getElementById('replacement-tbody');
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td><input type="text" class="form-control form-control-sm" value="${name}"></td>
+    <td><input type="number" class="form-control form-control-sm" step="any" value="${value}"></td>
+    <td>
+      <select class="form-select form-select-sm">
+        <option ${unit==='$/kW' ?'selected':''}>$/kW</option>
+        <option ${unit==='$/kWh'?'selected':''}>$/kWh</option>
+      </select>
+    </td>
+    <td><button class="btn btn-sm btn-outline-danger py-0 px-1" onclick="this.closest('tr').remove()"><i class="bi bi-x"></i></button></td>`;
+  body.appendChild(tr);
+}
+function addReplRow() { appendReplRow(); }
+
+// ── 폼 데이터 수집 ───────────────────────────────────────────
+function collectCapitalItems(tbodyId) {
+  const items = [];
+  document.getElementById(tbodyId).querySelectorAll('tr').forEach(tr => {
+    const inputs = tr.querySelectorAll('input');
+    const selects = tr.querySelectorAll('select');
+    const nameEl  = inputs[0];
+    const valEl   = inputs[inputs.length > 1 ? 1 : 0];
+    const unitEl  = selects[0];
+    if (!nameEl || !valEl) return;
+    const name  = (nameEl.type === 'text') ? nameEl.value.trim() : (tr.dataset.name || '');
+    const value = valEl.value.trim();
+    const unit  = unitEl ? unitEl.value : (tr.dataset.unit || '$/kWh');
+    if (name && value) items.push({name, value: parseFloat(value), unit});
+  });
+  return items;
+}
+
+function collectCapitalFromSchema() {
+  const items = [];
+  document.getElementById('capital-tbody').querySelectorAll('tr').forEach(tr => {
+    const name  = tr.dataset.name;
+    const unit  = tr.dataset.unit;
+    const value = tr.querySelector('input').value.trim();
+    if (name && value) items.push({name, value: parseFloat(value), unit});
+  });
+  return items;
+}
+
+function pct(id) { return parseFloat(document.getElementById(id).value || 0) / 100; }
+
+function buildPayload() {
+  const code = document.getElementById('storage_type').value;
+  return {
+    storage_type:  code,
+    power_mw:      parseFloat(document.getElementById('power_mw').value),
+    duration_hr:   parseFloat(document.getElementById('duration_hr').value),
+    rte_dc:        parseFloat(document.getElementById('rte_dc').value),
+    dod:           parseFloat(document.getElementById('dod').value),
+    secondary_dod: document.getElementById('secondary_dod').value || null,
+    rest_charge_hr:    parseFloat(document.getElementById('rest_charge_hr').value    || 0),
+    rest_discharge_hr: parseFloat(document.getElementById('rest_discharge_hr').value || 0),
+    calendar_life_yr:  parseFloat(document.getElementById('calendar_life_yr').value  || 20),
+    project_life_yr:   parseFloat(document.getElementById('project_life_yr').value   || 20),
+    cycle_limit_per_yr:parseFloat(document.getElementById('cycle_limit_per_yr').value|| 365),
+    cycle_life_at_primary_dod:   document.getElementById('cycle_life_at_primary_dod').value   || null,
+    cycle_life_at_secondary_dod: document.getElementById('cycle_life_at_secondary_dod').value || null,
+
+    capital_items:     collectCapitalFromSchema(),
+    decomm_items:      collectCapitalItems('decomm-tbody'),
+    replacement_items: collectCapitalItems('replacement-tbody'),
+
+    fixed_om_per_kw_yr:       parseFloat(document.getElementById('fixed_om_per_kw_yr').value       || 0),
+    variable_om_per_kwh:      parseFloat(document.getElementById('variable_om_per_kwh').value      || 0),
+    electricity_cost_per_kwh: parseFloat(document.getElementById('electricity_cost_per_kwh').value || 0.03),
+    warranty_per_kwh:         parseFloat(document.getElementById('warranty_per_kwh').value         || 0),
+    warranty_delay_yr:        parseInt(  document.getElementById('warranty_delay_yr').value        || 0),
+
+    inflation:             pct('inflation'),
+    interest_rate_nominal: pct('interest_rate_nominal'),
+    coe_nominal:           pct('coe_nominal'),
+    debt_fraction:         pct('debt_fraction'),
+    tax_rate:              pct('tax_rate'),
+    property_tax_rate:     pct('property_tax_rate'),
+    insurance_rate:        pct('insurance_rate'),
+    analysis_period_n:     parseInt(document.getElementById('analysis_period_n').value || 20),
+    om_escalation_real:    pct('om_escalation_real'),
+    prevailing_wage:       document.getElementById('prevailing_wage').checked,
+    energy_community:      document.getElementById('energy_community').checked,
+    domestic_content:      document.getElementById('domestic_content').checked,
+  };
+}
+
+// ── 계산 실행 ────────────────────────────────────────────────
+async function runCalculate() {
+  hideError();
+  showSpinner(true);
+  try {
+    const payload = buildPayload();
+    const res = await fetch('/api/calculate', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (data.error) { showError(data.error); return; }
+    lastResult = data;
+    renderResults(data);
+  } catch(e) { showError(String(e)); }
+  finally { showSpinner(false); }
+}
+
+// ── 결과 렌더링 ──────────────────────────────────────────────
+const COST_LABELS = {
+  OCC: '초기투자비 (OCC)', FOM: '고정 O&M', VOM: '변동 O&M',
+  ECC: '전력 충전비 (ECC)', Warranty: '보증비', ARMO: 'ARMO', Decomm: '해체비',
+};
+const COST_COLORS = {
+  OCC:'#3b82f6', FOM:'#22c55e', VOM:'#86efac', ECC:'#f59e0b',
+  Warranty:'#a78bfa', ARMO:'#ef4444', Decomm:'#94a3b8',
+};
+
+function renderResults(data) {
+  document.getElementById('placeholder').style.display = 'none';
+  document.getElementById('results').style.display     = 'block';
+
+  const aeo = data.aeo;
+  document.getElementById('r-lcos').textContent     = data.lcos.toFixed(4);
+  document.getElementById('r-lcos-rte').textContent = data.lcos_rte.toFixed(4);
+  document.getElementById('r-arr').textContent      = fmt(data.arr);
+  document.getElementById('r-aeo').textContent      = fmt(aeo);
+  document.getElementById('r-occ').textContent      = '$' + fmt(data.occ);
+  document.getElementById('r-fcr').textContent      = (data.fcr * 100).toFixed(2) + '%';
+  document.getElementById('r-wacc-nom').textContent = (data.wacc_nom  * 100).toFixed(2) + '%';
+  document.getElementById('r-wacc-real').textContent= (data.wacc_real * 100).toFixed(2) + '%';
+  document.getElementById('r-itc').textContent      = (data.itc       * 100).toFixed(0) + '%';
+
+  renderChart(data, aeo);
+  renderCostTable(data, aeo);
+  renderSchedule(data.schedules);
+}
+
+function renderChart(data, aeo) {
+  const ann    = data.annualized;
+  const keys   = ['OCC','FOM','VOM','ECC','Warranty','ARMO','Decomm'];
+  const vals   = keys.map(k => +(ann[k] / aeo).toFixed(4));
+  const labels = keys.map(k => COST_LABELS[k]);
+  const colors = keys.map(k => COST_COLORS[k]);
+
+  if (costChart) costChart.destroy();
+  costChart = new Chart(document.getElementById('cost-chart'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        data: vals, backgroundColor: colors,
+        borderRadius: 4, borderSkipped: false,
+      }]
+    },
+    options: {
+      indexAxis: 'y',
+      plugins: { legend: { display: false }, tooltip: {
+        callbacks: { label: ctx => ` $${ctx.raw.toFixed(4)}/kWh` }
+      }},
+      scales: {
+        x: { title: { display: true, text: '$/kWh', font: { size: 10 } }, grid: { color: '#f1f5f9' } },
+        y: { ticks: { font: { size: 11 } }, grid: { display: false } },
+      },
+    }
+  });
+}
+
+function renderCostTable(data, aeo) {
+  costTabMode = costTabMode || 'ann';
+  const ann  = data.annualized;
+  const npv  = data.npv;
+  const keys = ['OCC','FOM','VOM','ECC','Warranty','ARMO','Decomm'];
+  const total = ann.Total;
+
+  const tbody = document.getElementById('cost-tbody');
+  tbody.innerHTML = '';
+
+  for (const k of keys) {
+    const a   = ann[k];
+    const pctVal = total > 0 ? (a / total * 100).toFixed(1) : '0.0';
+    let display;
+    if (costTabMode === 'ann') display = `$${fmt(a)}`;
+    else display = `$${fmt(k === 'OCC' ? data.occ : (npv[k] || 0))}`;
+
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${COST_LABELS[k]}</td><td>${display}</td><td class="pct">${pctVal}%</td>`;
+    tbody.appendChild(tr);
+  }
+  // Total row
+  let totalDisplay;
+  if (costTabMode === 'ann') totalDisplay = `$${fmt(total)}`;
+  else totalDisplay = '—';
+  const tr = document.createElement('tr');
+  tr.innerHTML = `<td>합계</td><td>${totalDisplay}</td><td>100%</td>`;
+  tbody.appendChild(tr);
+
+  const head = document.getElementById('cost-col-head');
+  head.textContent = costTabMode === 'ann' ? '연환산 ($/yr)' : 'NPV ($)';
+}
+
+function showCostTab(mode, el) {
+  costTabMode = mode;
+  document.querySelectorAll('#cost-tabs .nav-link').forEach(a => a.classList.remove('active'));
+  el.classList.add('active');
+  if (lastResult) renderCostTable(lastResult, lastResult.aeo);
+}
+
+function renderSchedule(schedules) {
+  const area = document.getElementById('schedule-area');
+  area.innerHTML = '';
+
+  function renderGroup(title, items, colorClass) {
+    if (!items || items.length === 0) return;
+    const h = document.createElement('div');
+    h.className = 'fw-semibold mb-1 mt-2';
+    h.style.fontSize = '.78rem'; h.style.color = '#374151';
+    h.textContent = title;
+    area.appendChild(h);
+    const table = document.createElement('table');
+    table.className = 'cost-table';
+    table.innerHTML = '<thead><tr><th>항목</th><th>1회 비용</th><th>발생 연도</th></tr></thead>';
+    const tbody = document.createElement('tbody');
+    for (const it of items) {
+      const tr = document.createElement('tr');
+      tr.className = 'sched-row';
+      const yearBadges = it.years.map(y => `<span class="year-badge">${y}</span>`).join('');
+      tr.innerHTML = `<td>${it.name}</td><td>$${fmt(it.cost)}</td><td>${yearBadges}</td>`;
+      tbody.appendChild(tr);
+    }
+    table.appendChild(tbody);
+    area.appendChild(table);
+  }
+
+  renderGroup('ARMO', schedules.armo);
+  renderGroup('보증 (Warranty)', schedules.warranty);
+  renderGroup('해체 (Decomm)', schedules.decomm);
+
+  if (!schedules.armo.length && !schedules.warranty.length && !schedules.decomm.length) {
+    area.innerHTML = '<span class="text-muted" style="font-size:.8rem">해당 없음</span>';
+  }
+}
+
+// ── 유틸 ────────────────────────────────────────────────────
+function fmt(n) { return Number(n).toLocaleString('en-US', {maximumFractionDigits: 0}); }
+function setVal(id, val) { const el = document.getElementById(id); if (el && val !== null && val !== undefined) el.value = val; }
+function showSpinner(on) { document.getElementById('spinner').classList.toggle('show', on); }
+function showError(msg) { const el = document.getElementById('error-msg'); el.textContent = msg; el.style.display = 'block'; }
+function hideError() { document.getElementById('error-msg').style.display = 'none'; }
+</script>
+</body>
+</html>

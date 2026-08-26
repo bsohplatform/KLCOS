@@ -39,8 +39,8 @@ STORAGE_CATALOG = {
     "PSH":    ("PSH",                 TechCategory.OTHER,       20),
     "CAES":   ("CAES",                TechCategory.OTHER,       20),
     "GES":    ("Gravitational",       TechCategory.OTHER,       20),
-    "CARNOT": ("Thermal (Carnot)",    TechCategory.OTHER,       20),
-    "LAES":   ("Thermal (LAES)",      TechCategory.OTHER,       20),
+    "THERMAL":         ("Thermal",                   TechCategory.OTHER, 20),
+    "CARNOT_CONCRETE": ("Retrofit Carnot (Concrete)", TechCategory.OTHER, 20),
 }
 
 
@@ -84,7 +84,7 @@ class CapitalCostItem:
 
 
 @dataclass
-class LumpCostItem:
+class ScheduledCostItem:
     """특정 연도에 일시 발생하는 비용 항목"""
     name:  str
     cost:  float       # 1회 발생 비용 ($)
@@ -97,15 +97,23 @@ class TechParams:
     storage_type:       str   = "LFP"   # STORAGE_CATALOG 키
     power_mw:           float = 100.0   # 정격 출력 (MW)
     duration_hr:        float = 4.0     # 저장 지속시간 (hr)
-    rte:                float = 0.52    # 왕복효율
-    dod:                float = 0.80    # 방전심도
-    rest_charge_hr:     float = 0.0     # 충전 후 휴지시간 (hr)
-    rest_discharge_hr:  float = 0.0     # 방전 후 휴지시간 (hr)
-    calendar_life_yr:   float = 60.0    # 달력 수명 (년)
-    project_life_yr:    float = 60.0    # 사업 기간 (년)
-    cycle_limit_per_yr: float = 365.0   # 연간 사이클 제한 (100% DOD 기준)
-    max_cycles_dod:     Optional[float] = None  # DOD 기준 최대 사이클 수
+    rte_dc:             float = 0.52    # DC 왕복효율 (J22, 전력변환 손실 제외)
+    dod:                float = 0.80    # 1차 방전심도 (Primary DOD)
+    secondary_dod:              Optional[float] = None  # 2차 방전심도 (LFP/NMC 전용, None이면 미해당)
+    rest_charge_hr:             float = 0.0     # 충전 후 휴지시간 (hr)
+    rest_discharge_hr:          float = 0.0     # 방전 후 휴지시간 (hr)
+    calendar_life_yr:           float = 60.0    # 달력 수명 (년)
+    project_life_yr:            float = 60.0    # 사업 기간 (년)
+    cycle_limit_per_yr:         float = 365.0   # 연간 사이클 제한 (100% DOD 기준)
+    max_cycles_dod:             Optional[float] = None  # DOD 기준 최대 사이클 수
+    cycle_life_at_primary_dod:  Optional[float] = None  # 1차 DOD 기준 사이클 수명
+    cycle_life_at_secondary_dod: Optional[float] = None  # 2차 DOD 기준 사이클 수명 (LFP/NMC)
     macrs_period:       Optional[int]   = None  # None → storage_type에서 자동 결정
+    # 전력변환 효율 (PNNL Assumptions & Parameters 기본값, 단방향 one-way)
+    bidirectional_inverter_efficiency:    float = 0.98
+    bidirectional_transformer_efficiency: float = 0.98
+    unidirectional_inverter_efficiency:   float = 0.98  # H2 방전(인버터)
+    rectifier_efficiency:                 float = 0.98  # H2 충전(정류기)
 
     def __post_init__(self):
         if self.storage_type not in STORAGE_CATALOG:
@@ -115,6 +123,23 @@ class TechParams:
             )
         if self.macrs_period is None:
             self.macrs_period = STORAGE_CATALOG[self.storage_type][2]
+
+    @property
+    def rte(self) -> float:
+        """AC-AC 시스템 왕복효율 (PNNL I98 공식)
+        Battery : rte_dc × bi_inv_eff² × bi_trans_eff²
+        Hydrogen: rte_dc × (uni_inv_eff × rectifier_eff) × bi_trans_eff²
+        Other   : rte_dc (PSH/CAES 등은 이미 AC-AC)
+        """
+        bi_inv_sq   = self.bidirectional_inverter_efficiency   ** 2
+        bi_trans_sq = self.bidirectional_transformer_efficiency ** 2
+        cat = self.category
+        if cat in (TechCategory.LITHIUM, TechCategory.NON_LITHIUM):
+            return self.rte_dc * bi_inv_sq * bi_trans_sq
+        elif cat == TechCategory.HYDROGEN:
+            return self.rte_dc * (self.unidirectional_inverter_efficiency * self.rectifier_efficiency) * bi_trans_sq
+        else:
+            return self.rte_dc
 
     @property
     def display_name(self) -> str:
@@ -133,9 +158,9 @@ class CostParams:
     variable_om_per_kwh:      float = 0.0      # 변동 O&M ($/kWh)
     electricity_cost_per_kwh: float = 0.03     # 전력 구매단가 ($/kWh)
     capital_items:  list[CapitalCostItem] = field(default_factory=list)  # OCC 구성 항목
-    warranty_items: list[LumpCostItem]    = field(default_factory=list)  # 보증비용 항목
-    armo_items:     list[LumpCostItem]    = field(default_factory=list)  # ARMO 비용 항목
-    decomm_items:   list[LumpCostItem]    = field(default_factory=list)  # 해체비용 항목
+    warranty_items: list[ScheduledCostItem]    = field(default_factory=list)  # 보증비용 항목
+    armo_items:     list[ScheduledCostItem]    = field(default_factory=list)  # ARMO 비용 항목
+    decomm_items:   list[ScheduledCostItem]    = field(default_factory=list)  # 해체비용 항목
 
 
 @dataclass
@@ -178,6 +203,15 @@ _THERMAL_ITEMS = [
     CapitalCostField('Power Equipment',                                          _KW),
 ]
 
+_CARNOT_CONCRETE_ITEMS = [
+    CapitalCostField('Storage Block',        _KWH),
+    CapitalCostField('Balance of Storage',   _KWH),
+    CapitalCostField('Power Equipment',      _KW),
+    CapitalCostField('EPC',                  _KWH),
+    CapitalCostField('Project Development',  _KWH),
+    CapitalCostField('Grid Integration',     _KW),
+]
+
 CAPITAL_CATALOG: dict[str, list[CapitalCostField]] = {
     'LFP':  _BATTERY_ITEMS,
     'NMC':  _BATTERY_ITEMS,
@@ -209,8 +243,8 @@ CAPITAL_CATALOG: dict[str, list[CapitalCostField]] = {
         CapitalCostField('Combined Project Development & Grid Integration',        _KWH),
         CapitalCostField('Power Equipment',                                        _KW),
     ],
-    'CARNOT': _THERMAL_ITEMS,
-    'LAES':   _THERMAL_ITEMS,
+    'THERMAL':         _THERMAL_ITEMS,
+    'CARNOT_CONCRETE': _CARNOT_CONCRETE_ITEMS,
 }
 
 
@@ -253,7 +287,7 @@ class GESCapital(Enum):
     POWER_EQUIPMENT       = 'Power Equipment'
 
 class ThermalCapital(Enum):
-    """CARNOT, LAES 공통"""
+    """THERMAL"""
     THERMAL_CAPITAL  = 'Thermal Capital (SB + BOS)'
     COMBINED_EPC_FEE = 'Combined EPC Fee, Project Development & Grid Integration'
     POWER_EQUIPMENT  = 'Power Equipment'
@@ -272,8 +306,8 @@ _DB_TECH_MAP: dict[str, str] = {
     'PSH':    'PSH',
     'CAES':   'CAES',
     'GES':    'Gravitational',
-    'CARNOT': 'Thermal',
-    'LAES':   'Thermal',
+    'THERMAL':         'Thermal',
+    'CARNOT_CONCRETE': 'Retrofit Carnot (Concrete)',
 }
 
 
@@ -348,23 +382,373 @@ def load_capital_from_db(
 
 # ── 순수 계산 함수 ────────────────────────────────────────────
 
+def calc_cycles_per_year(tech: TechParams) -> float:
+    """Primary DOD 기준 연간 사이클 수 계산.
+
+    물리적 한계(24hr/cycle)와 cycle_limit_per_yr 중 작은 값을 적용한다.
+    Secondary DOD 기준이 필요할 때는 tech.secondary_dod를 직접 참조해 별도 계산한다.
+    """
+    d            = tech.dod
+    discharge_hr = tech.duration_hr * d
+    charge_hr    = discharge_hr / tech.rte
+    total_hr     = discharge_hr + charge_hr + tech.rest_charge_hr + tech.rest_discharge_hr
+    cycle_day    = min(24.0 / total_hr, tech.cycle_limit_per_yr / 365.0 / d)
+    return cycle_day * 365.0
+
+
 def calc_aeo(tech: TechParams):
     """연간 에너지 출력량(AEO) 계산 (kWh/yr)"""
-    power_kw = tech.power_mw * 1000
-    discharge_time = tech.duration_hr * tech.dod
-    charge_time = discharge_time / tech.rte
-    total_hr = discharge_time + charge_time + tech.rest_charge_hr + tech.rest_discharge_hr
-    cycle_day = min(24/total_hr,tech.cycle_limit_per_yr/365.0/tech.dod)
-    
-    aeo = cycle_day*365.0*power_kw*tech.duration_hr*tech.dod
-    
+    power_kw     = tech.power_mw * 1000
+    discharge_hr = tech.duration_hr * tech.dod
+    charge_hr    = discharge_hr / tech.rte
+    total_hr     = discharge_hr + charge_hr + tech.rest_charge_hr + tech.rest_discharge_hr
+    cycle_day    = min(24.0 / total_hr, tech.cycle_limit_per_yr / 365.0 / tech.dod)
+    aeo          = cycle_day * 365.0 * power_kw * tech.duration_hr * tech.dod
+
     return aeo, {
-        'discharge_time_hr':    discharge_time,
-        'charge_time_hr':       charge_time,
-        'total_hr_per_cycle':   total_hr,
-        'cycles_per_day':   cycle_day,
-        'cycles_per_year':  cycle_day*365
+        'discharge_time_hr':  discharge_hr,
+        'charge_time_hr':     charge_hr,
+        'total_hr_per_cycle': total_hr,
+        'cycles_per_day':     cycle_day,
+        'cycles_per_year':    cycle_day * 365.0,
     }
+
+
+def build_dc_sb_armo(
+    tech:              TechParams,
+    capital_items:     list[CapitalCostItem],
+    cycle_life_at_primary_dod: float,
+    proj_life:         int,
+) -> list[ScheduledCostItem]:
+    """
+    DC Storage Block 교체 ARMO 생성.
+
+    교체 간격 = round(min(cycle_life_at_primary_dod / cycles_per_year, calendar_life))
+    proj_life 이전의 교체 연도에 ScheduledCostItem 으로 반환한다.
+    """
+    cycles_per_year = calc_cycles_per_year(tech)
+    if cycles_per_year <= 0:
+        return []
+    dc_sb = next(
+        (it for it in capital_items if it.name == 'DC Storage Block'),
+        None,
+    )
+    if dc_sb is None:
+        return []
+    repl_cost = dc_sb.to_total(tech.power_mw, tech.duration_hr)
+    exhaust = cycle_life_at_primary_dod / cycles_per_year
+    interval = round(min(exhaust, tech.calendar_life_yr))
+    if interval <= 0:
+        return []
+    years = [interval * i for i in range(1, 10_000) if interval * i < proj_life]
+    return [ScheduledCostItem('DC Storage Block Replacement', repl_cost, years)] if years else []
+
+
+def build_vrf_stack_armo(
+    tech:              TechParams,
+    replacement_items: list[CapitalCostItem],
+    proj_life:         int,
+) -> list[ScheduledCostItem]:
+    """
+    VRF Redox Flow Stack/Pump 교체 ARMO 생성.
+
+    교체 간격 = calendar_life (사이클 수명 무관, 달력 수명 기준)
+    proj_life 이전의 교체 연도에 ScheduledCostItem 으로 반환한다.
+    replacement_items 는 DB 'Replacement' 카테고리 항목 ($/kW 단위).
+    """
+    if not replacement_items:
+        return []
+    interval = round(tech.calendar_life_yr)
+    if interval <= 0:
+        return []
+    years = [interval * i for i in range(1, 10_000) if interval * i < proj_life]
+    if not years:
+        return []
+    return [
+        ScheduledCostItem(it.name, it.to_total(tech.power_mw, tech.duration_hr), years)
+        for it in replacement_items
+    ]
+
+
+def build_gravitational_armo(
+    tech:          TechParams,
+    capital_items: list[CapitalCostItem],
+    proj_life:     int,
+) -> list[ScheduledCostItem]:
+    """
+    Gravitational Power Equipment 교체 ARMO 생성.
+
+    교체 간격 = 30년 (고정, PNNL 정의)
+    proj_life 이전의 교체 연도에 ScheduledCostItem 으로 반환한다.
+    """
+    pe = next((it for it in capital_items if it.name == 'Power Equipment'), None)
+    if pe is None:
+        return []
+    repl_cost = pe.to_total(tech.power_mw, tech.duration_hr)
+    years = [30 * i for i in range(1, 10_000) if 30 * i < proj_life]
+    return [ScheduledCostItem('Power Equipment Replacement', repl_cost, years)] if years else []
+
+
+def build_hydrogen_armo(
+    tech:          TechParams,
+    capital_items: list[CapitalCostItem],
+    proj_life:     int,
+) -> list[ScheduledCostItem]:
+    """
+    Hydrogen ARMO 생성 (PNNL 정의):
+    - Fuel Cell Stack  : 40,000 FC 운전시간 간격
+    - Electrolyzer     : 60,000 EZ 운전시간 간격
+    - BOP (Compressor, Inverter, Rectifier): 15년 간격 -> FOM에 이미 포함
+    """
+    cycles_per_year = calc_cycles_per_year(tech)
+    discharge_hr = tech.duration_hr * tech.dod
+    charge_hr    = discharge_hr / tech.rte   # EZ 운전시간 = 충전 시간
+
+    items: list[ScheduledCostItem] = []
+
+    def _add(name_key: str, label: str, interval: int) -> None:
+        it = next((x for x in capital_items if x.name == name_key), None)
+        if it is None or interval <= 0:
+            return
+        years = [interval * i for i in range(1, 10_000) if interval * i < proj_life]
+        if years:
+            items.append(ScheduledCostItem(label, it.to_total(tech.power_mw, tech.duration_hr), years))
+
+    # Fuel Cell Stack
+    if cycles_per_year > 0 and discharge_hr > 0:
+        fc_interval = round(40_000 / (discharge_hr * cycles_per_year))
+        _add('HESS Fuel Cell', 'Fuel Cell Stack Replacement', fc_interval)
+
+    # Electrolyzer
+    if cycles_per_year > 0 and charge_hr > 0:
+        ez_interval = round(60_000 / (charge_hr * cycles_per_year))
+        _add('HESS Electrolyzer', 'Electrolyzer Replacement', ez_interval)
+
+    # BOP (Compressor, Inverter, Rectifier) 교체는 Fixed O&M에 포함되어 있으므로 제외
+
+    return items
+
+def build_lithumion_augmentation(
+    tech: TechParams,
+    capital_items: list[CapitalCostItem],
+    cycles_life_at_primary_dod: float,
+    cycles_life_at_secondary_dod: float,
+    proj_life: int,
+) -> list[ScheduledCostItem]:
+    """
+    Lithium-ion LFP/NMC DC Storage Block 증설(Augmentation) ARMO 생성.
+
+    tech.dod           = Primary DOD (1차 방전심도)
+    tech.secondary_dod = Secondary DOD (2차 방전심도)
+
+    사이클 구조 (주기 T = T_aug + T_sec):
+      Phase A [0 → T_aug]          : Battery 1이 primary DOD로 운전
+      Phase B [T_aug → T_aug+T_sec]: Battery 1이 secondary DOD로 운전 + Battery 2(aug_frac) 추가
+      T 년도                        : Battery 1 폐기, Battery 3(full) 추가 → 주기 반복
+
+    증설 연도 : round(n×T + T_aug), n = 0, 1, 2, ...  (비용 = augmentation_fraction × DC_SB)
+    교체 연도 : round(n×T),         n = 1, 2, 3, ...  (비용 = full DC_SB)
+    """
+    primary_dod   = tech.dod
+    secondary_dod = tech.secondary_dod
+
+    dc_sb = next((it for it in capital_items if it.name == 'DC Storage Block'), None)
+    if dc_sb is None or secondary_dod is None:
+        return []
+
+    repl_cost = dc_sb.to_total(tech.power_mw, tech.duration_hr)
+
+    # ── Primary DOD 기준 연간 사이클 수 ─────────────────────────
+    cycles_per_year = calc_cycles_per_year(tech)
+
+    # ── Secondary DOD 기준 연간 사이클 수 (인라인 계산) ──────────
+    d2          = secondary_dod
+    dhr2        = tech.duration_hr * d2
+    total_hr2   = dhr2 + dhr2 / tech.rte + tech.rest_charge_hr + tech.rest_discharge_hr
+    cycle_day2  = min(24.0 / total_hr2, tech.cycle_limit_per_yr / 365.0 / d2)
+    cycles_per_year_secondary = cycle_day2 * 365.0
+
+    if cycles_per_year <= 0 or cycles_per_year_secondary <= 0:
+        return []
+
+    # ── 주기 계산 ────────────────────────────────────────────────
+    # Phase A 기간: primary DOD 사이클 소진 또는 달력 수명 중 빠른 쪽
+    cycle_exhaust = cycles_life_at_primary_dod / cycles_per_year
+    T_aug         = min(cycle_exhaust, tech.calendar_life_yr)
+
+    # calendar_life 가 binding 인 경우: 사이클 소진 전에 배터리가 노후화 → 단순 전체 교체
+    if tech.calendar_life_yr <= cycle_exhaust:
+        interval = round(T_aug)
+        if interval <= 0:
+            return []
+        repl_years_cal = [interval * i for i in range(1, 10_000) if interval * i < proj_life]
+        return [ScheduledCostItem('DC Storage Block Replacement', repl_cost, repl_years_cal)] if repl_years_cal else []
+
+    # cycle life 가 binding 인 경우: primary DOD 소진 → secondary DOD 전환 + 증설
+    # Battery 1의 secondary DOD 잔여 수명 (calendar life 잔여분으로 제한)
+    cycles_remain_primary_dc_sb          = (1 - (1 - primary_dod) / (1 - secondary_dod)) * cycles_life_at_secondary_dod
+    years_primary_dc_sb_at_secondary_dod = cycles_remain_primary_dc_sb / cycles_per_year_secondary
+    remaining_cal_after_taug             = tech.calendar_life_yr - T_aug
+    years_secondary_phase                = min(years_primary_dc_sb_at_secondary_dod, remaining_cal_after_taug)
+
+    T1 = T_aug + years_secondary_phase   # Battery 1 총 수명 (primary + secondary 잔여)
+
+    # Battery 2, 3, 4, 5, ... 는 처음부터 secondary DOD로 운전 → 전체 secondary 수명
+    T_secondary = min(cycles_life_at_secondary_dod / cycles_per_year_secondary, tech.calendar_life_yr)
+
+    # ── 증설 비율: Battery 2의 규모 (secondary DOD 기준 출력 부족분 보충) ──
+    augmentation_fraction = (primary_dod - secondary_dod) / secondary_dod
+    aug_cost = repl_cost * augmentation_fraction
+
+    # ── Minor aug: Battery 1 → secondary 전환(n=0), Battery 2 수명 종료(n=1), ...
+    # n=0: round(T_aug),  n≥1: round(round(T_aug) + n×T_secondary)
+    # n≥1은 Battery 2의 실제 가동 시작 연도(round(T_aug))를 기준으로 계산한다.
+    aug_yr_0 = round(T_aug)
+    aug_years: list[int] = []
+    for n in range(0, 10_000):
+        yr = aug_yr_0 if n == 0 else round(aug_yr_0 + n * T_secondary)
+        if yr <= 0:
+            continue
+        if yr >= proj_life:
+            break
+        aug_years.append(yr)
+
+    # ── Major aug: Battery 1 퇴역(n=0), Battery 3 수명 종료(n=1), ...
+    # n=0: round(T1),  n≥1: round(round(T1) + n×T_secondary)
+    major_yr_0 = round(T1)
+    major_years: list[int] = []
+    for n in range(0, 10_000):
+        yr = major_yr_0 if n == 0 else round(major_yr_0 + n * T_secondary)
+        if yr <= 0:
+            continue
+        if yr >= proj_life:
+            break
+        major_years.append(yr)
+
+    items: list[ScheduledCostItem] = []
+    if aug_years:
+        items.append(ScheduledCostItem('DC Storage Block Augmentation', aug_cost, aug_years))
+    if major_years:
+        items.append(ScheduledCostItem('DC Storage Block Augmentation (Major)', repl_cost, major_years))
+    return items
+
+
+def build_nmc_warranty(
+    armo_items:        list[ScheduledCostItem],
+    warranty_per_kwh:  float,
+    warranty_delay_yr: int,
+    proj_life:         int,
+    power_mw:          float,
+    duration_hr:       float,
+) -> list[ScheduledCostItem]:
+    """
+    NMC warranty ScheduledCostItem 생성.
+    DC SB replacement (Major augmentation) 연도 기준으로만 적용.
+    각 replacement 연도 + warranty_delay_yr 후부터 proj_life 까지 매년 발생.
+    """
+    w_total    = warranty_per_kwh * power_mw * 1000 * duration_hr
+    major_item = next((it for it in armo_items if 'Major' in it.name), None)
+    if major_item is None:
+        return []
+    items: list[ScheduledCostItem] = []
+    for repl_yr in major_item.years:
+        years = list(range(repl_yr + warranty_delay_yr, proj_life + 1))
+        if years:
+            items.append(ScheduledCostItem('Warranty', w_total, years))
+    return items
+
+
+def build_repl_decomm(
+    repl_years:  list[int],
+    decomm_base: list[CapitalCostItem],
+    proj_life:   int,
+    power_mw:    float,
+    duration_hr: float,
+) -> list[ScheduledCostItem]:
+    """
+    배터리 교체 시마다 구 배터리 처리(해체) 비용이 발생하는 기술용.
+
+    교체 연도 + 사업 종료(proj_life) 연도 전체에 해체 비용을 반영한
+    ScheduledCostItem 리스트를 반환한다.
+    """
+    years = sorted(set(list(repl_years) + [proj_life]))
+    return [
+        ScheduledCostItem(it.name, it.to_total(power_mw, duration_hr), years)
+        for it in decomm_base
+    ]
+
+
+def build_armo_and_decomm(
+    tech:              'TechParams',
+    capital_items:     list[CapitalCostItem],
+    decomm_base:       list[CapitalCostItem],
+    proj_life:         int,
+    replacement_items: list[CapitalCostItem] | None = None,
+    warranty_per_kwh:  float = 0.0,
+    warranty_delay_yr: int   = 0,
+    include_decomm:    bool  = True,
+) -> tuple[list[ScheduledCostItem], list[ScheduledCostItem], list[ScheduledCostItem]]:
+    """
+    기술 유형에 따라 ARMO / 해체비용 / 보증비용 ScheduledCostItem 을 자동 생성한다.
+    cycle_life 값들은 tech.cycle_life_at_primary_dod / tech.cycle_life_at_secondary_dod 에서 읽는다.
+
+    - LFP, NMC + secondary_dod 존재 시 → Augmentation ARMO (증설 + 교체 복합)
+    - ZINC, LEAD + cycle_life_at_primary_dod 존재 시 → DC Storage Block 교체 ARMO
+    - VRF + replacement_items 존재 시 → Stack 교체 ARMO (calendar_life 간격)
+    - GES → Power Equipment 교체 ARMO (30년 간격)
+    - LEAD → 해체비용을 교체 연도 + 사업 종료 연도에 반영
+    - NMC → 각 augmentation 연도 + warranty_delay_yr 후부터 proj_life 까지 매년 warranty
+    - VRF → calendar_life 기간 동안 매년 warranty
+    - 그 외 → year 1 warranty
+    반환: (armo_items, decomm_items, warranty_items)
+    """
+    cl_primary   = tech.cycle_life_at_primary_dod
+    cl_secondary = tech.cycle_life_at_secondary_dod
+
+    armo_items: list[ScheduledCostItem] = []
+    if tech.storage_type in ('LFP', 'NMC') and tech.secondary_dod and cl_primary and cl_secondary:
+        armo_items = build_lithumion_augmentation(
+            tech, capital_items,
+            float(cl_primary), float(cl_secondary), proj_life,
+        )
+    elif tech.storage_type in ('ZINC', 'LEAD') and cl_primary:
+        armo_items = build_dc_sb_armo(tech, capital_items, float(cl_primary), proj_life)
+    elif tech.storage_type == 'VRF' and replacement_items:
+        armo_items = build_vrf_stack_armo(tech, replacement_items, proj_life)
+    elif tech.storage_type == 'GES':
+        armo_items = build_gravitational_armo(tech, capital_items, proj_life)
+    elif tech.storage_type == 'H2':
+        armo_items = build_hydrogen_armo(tech, capital_items, proj_life)
+
+    if not include_decomm:
+        decomm_items = []
+    elif tech.storage_type == 'LEAD' and armo_items:
+        decomm_items = build_repl_decomm(
+            armo_items[0].years, decomm_base, proj_life,
+            tech.power_mw, tech.duration_hr,
+        )
+    else:
+        decomm_items = [
+            ScheduledCostItem(it.name, it.to_total(tech.power_mw, tech.duration_hr), [proj_life])
+            for it in decomm_base
+        ]
+
+    warranty_items: list[ScheduledCostItem] = []
+    if warranty_per_kwh > 0:
+        w_total = warranty_per_kwh * tech.power_mw * 1000 * tech.duration_hr
+        if tech.storage_type == 'VRF':
+            cal_years = round(tech.calendar_life_yr)
+            warranty_items.append(ScheduledCostItem('Warranty', w_total,
+                                                    list(range(1, cal_years + 1))))
+        elif tech.storage_type == 'NMC':
+            warranty_items.extend(
+                build_nmc_warranty(armo_items, warranty_per_kwh, warranty_delay_yr,
+                                   proj_life, tech.power_mw, tech.duration_hr)
+            )
+        else:
+            warranty_items.append(ScheduledCostItem('Warranty', w_total, [1]))
+
+    return armo_items, decomm_items, warranty_items
 
 
 def calc_pvd(wacc_nominal: float, macrs_period: int) -> float:
@@ -493,6 +877,8 @@ def calculate_lcos(tech: TechParams, cost: CostParams, fin: FinancialParams) -> 
         'npv_warranty':        npv_warranty_n,
         'npv_armo':            npv_armo_n,
         'npv_decomm':          npv_decomm_n,
+        'armo_years':          sorted({y for it in cost.armo_items    for y in it.years}),
+        'decomm_years':        sorted({y for it in cost.decomm_items   for y in it.years}),
         'pv_rv':               pv_rv,
         'arr':                 arr,
         'arr_rte':             arr_rte,
@@ -518,7 +904,8 @@ def print_results(tech: TechParams, cost: CostParams, fin: FinancialParams, res:
     print("\n[기술 파라미터]")
     print(f"  정격 출력            : {tech.power_mw:>10.1f}  MW")
     print(f"  저장 지속시간        : {tech.duration_hr:>10.1f}  hr")
-    print(f"  왕복효율 (RTE)       : {tech.rte*100:>10.1f}  %")
+    print(f"  왕복효율 (DC, rte_dc): {tech.rte_dc*100:>10.2f}  %  (J22)")
+    print(f"  왕복효율 (시스템 RTE): {tech.rte*100:>10.2f}  %  (AC-AC)")
     print(f"  방전심도 (DOD)       : {tech.dod*100:>10.1f}  %")
     print(f"  사업 기간 (PL)       : {int(tech.project_life_yr):>10d}  년")
     print(f"  연간 사이클 제한     : {tech.cycle_limit_per_yr:>10.0f}  회/년 (100% DOD)")
@@ -585,22 +972,56 @@ def print_results(tech: TechParams, cost: CostParams, fin: FinancialParams, res:
     ann_rv       = crf * res['pv_rv']
     total_cost   = ann_occ + ann_fom + ann_vom + ann_ecc + ann_warranty + ann_armo + ann_decomm
 
-    print("\n[비용 구성 (연환산, $/yr)]")
-    print(f"  초기투자비 (OCC)     : ${ann_occ:>14,.0f}")
-    print(f"  O&M                  : ${ann_fom + ann_vom:>14,.0f}")
-    print(f"    ├ 고정 O&M (FOM)   : ${ann_fom:>14,.0f}")
-    print(f"    └ 변동 O&M (VOM)   : ${ann_vom:>14,.0f}")
-    print(f"  전력 충전비 (ECC)    : ${ann_ecc:>14,.0f}")
-    print(f"    ├ RTE 손실비용     : ${ann_rte_loss:>14,.0f}")
-    print(f"    └ 유효 충전비      : ${ann_ecc - ann_rte_loss:>14,.0f}")
-    print(f"  보증비 (Warranty)    : ${ann_warranty:>14,.0f}")
-    print(f"  ARMO                 : ${ann_armo:>14,.0f}")
-    print(f"  해체비 (Decomm.)     : ${ann_decomm:>14,.0f}")
-    print(f"  {'─'*38}")
-    print(f"  총 발생 비용         : ${total_cost:>14,.0f}")
-    print(f"  (-) 잔존가치         : ${ann_rv:>14,.0f}")
-    print(f"  {'─'*38}")
-    print(f"  총 연간 수입요건     : ${res['arr']:>14,.0f}")
+    # ── 1회 비용 / 총 횟수 (ARMO, Decomm) ───────────────────────
+    armo_yrs   = res['armo_years']
+    decomm_yrs = res['decomm_years']
+    armo_yr_str   = ', '.join(map(str, armo_yrs))   if armo_yrs   else '없음'
+    decomm_yr_str = ', '.join(map(str, decomm_yrs)) if decomm_yrs else '없음'
+    armo_per_occ   = sum(it.cost for it in cost.armo_items)
+    decomm_per_occ = sum(it.cost for it in cost.decomm_items)
+    armo_n_occ     = len(armo_yrs)
+    decomm_n_occ   = len(decomm_yrs)
+
+    _u = '$/yr'
+    SEP = '─' * 42
+
+    # ── 연환산 비용 ──────────────────────────────────────────────
+    print("\n[비용 구성 — 연환산 ($/yr)]")
+    print(f"  {SEP}")
+    print(f"  {'초기투자비 (OCC)':<25}: {ann_occ:>14,.0f}  {_u}")
+    print(f"  {'O&M':<25}: {ann_fom+ann_vom:>14,.0f}  {_u}")
+    print(f"    {'├ 고정 O&M (FOM)':<23}: {ann_fom:>14,.0f}  {_u}")
+    print(f"    {'└ 변동 O&M (VOM)':<23}: {ann_vom:>14,.0f}  {_u}")
+    print(f"  {'전력 충전비 (ECC)':<25}: {ann_ecc:>14,.0f}  {_u}")
+    print(f"    {'├ RTE 손실비용':<23}: {ann_rte_loss:>14,.0f}  {_u}")
+    print(f"    {'└ 유효 충전비':<23}: {ann_ecc-ann_rte_loss:>14,.0f}  {_u}")
+    print(f"  {'보증비 (Warranty)':<25}: {ann_warranty:>14,.0f}  {_u}")
+    print(f"  {'ARMO':<25}: {ann_armo:>14,.0f}  {_u}")
+    print(f"  {'해체비 (Decomm.)':<25}: {ann_decomm:>14,.0f}  {_u}")
+    print(f"  {SEP}")
+    print(f"  {'총 발생 비용':<25}: {total_cost:>14,.0f}  {_u}")
+    print(f"  {'(-) 잔존가치':<25}: {ann_rv:>14,.0f}  {_u}")
+    print(f"  {SEP}")
+    print(f"  {'총 연간 수입요건':<25}: {res['arr']:>14,.0f}  {_u}")
+
+    # ── 프로젝트 기간 총액 ────────────────────────────────────────
+    npv_om  = res['npv_fom'] + res['npv_vom']
+    print("\n[프로젝트 기간 비용 ($)]")
+    print(f"  {'':25}   {'금액':>14}   비고")
+    print(f"  {SEP}")
+    print(f"  {'초기투자비 (OCC)':<25}: {res['occ_total']:>14,.0f}  $  (미할인)")
+    print(f"  {'O&M':<25}: {npv_om:>14,.0f}  $  (NPV)")
+    print(f"  {'전력 충전비 (ECC)':<25}: {res['npv_ecc']:>14,.0f}  $  (NPV)")
+    print(f"  {'보증비 (Warranty)':<25}: {res['npv_warranty']:>14,.0f}  $  (NPV)")
+    if armo_n_occ:
+        print(f"  {'ARMO':<25}: {res['npv_armo']:>14,.0f}  $  (NPV, 1회 {armo_per_occ:,.0f} $  [{armo_yr_str}년])")
+    else:
+        print(f"  {'ARMO':<25}: {'없음':>14}")
+    if decomm_n_occ:
+        print(f"  {'해체비 (Decomm.)':<25}: {res['npv_decomm']:>14,.0f}  $  (NPV, 1회 {decomm_per_occ:,.0f} $  [{decomm_yr_str}년])")
+    else:
+        print(f"  {'해체비 (Decomm.)':<25}: {'없음':>14}")
+    print(f"  {SEP}")
 
     print()
     print("=" * w)
@@ -667,7 +1088,7 @@ def main():
         storage_type       = args.type.upper(),
         power_mw           = args.power_mw,
         duration_hr        = args.duration,
-        rte                = args.rte,
+        rte_dc             = args.rte,
         dod                = args.dod,
         project_life_yr    = args.project_life,
         cycle_limit_per_yr = args.cycle_limit,
@@ -695,9 +1116,39 @@ def main():
 
 
 if __name__ == '__main__':
-    tech = TechParams(storage_type="CAES", power_mw=100.0, duration_hr=4.0, rte=0.52, dod=0.8, rest_charge_hr=0.0, rest_discharge_hr=0.0, calendar_life_yr=60, project_life_yr=60, cycle_limit_per_yr=365)
-    items = build_capital_items('CAES', {CAESCapital.CAES_CAPITAL})
-    cost = CostParams(occ_per_kw = 1221.66, fixed_om_per_kw_yr=18.72, electricity_cost_per_kwh=0.03)
-    fin = FinancialParams()
+    project_life = 24
+    storage_type = "LEAD"
+    cycle_life_at_primary_dod = 3603.48
+
+    tech = TechParams(
+        storage_type=storage_type, power_mw=1, duration_hr=2,
+        rte_dc=0.77, dod=0.58, rest_charge_hr=1.77, rest_discharge_hr=1.77,
+        calendar_life_yr=13, project_life_yr=project_life, cycle_limit_per_yr=365,
+    )
+    capital_items = build_capital_items(storage_type, {
+        BatteryCapital.DC_STORAGE_BLOCK:    242.13,
+        BatteryCapital.DC_STORAGE_BOS:       85.79,
+        BatteryCapital.POWER_EQUIPMENT:     106.87,
+        BatteryCapital.CC:                   39.49,
+        BatteryCapital.SYSTEMS_INTEGRATION:  73.31,
+        BatteryCapital.EPC:                  54.19,
+        BatteryCapital.PROJECT_DEVELOPMENT:  69.10,
+        BatteryCapital.GRID_INTEGRATION:     33.97,
+    })
+
+    # 해체 비용: CapitalCostItem(단위비용, 단위) — to_total()은 내부에서 자동 계산
+    decomm_fields = [CapitalCostItem('Recycling', 12.83, '$/kWh')]
+
+    armo_items, decomm_items = build_armo_and_decomm(
+        tech, capital_items, decomm_fields, cycle_life_at_primary_dod, project_life
+    )
+
+    cost = CostParams(
+        fixed_om_per_kw_yr=4.35,
+        capital_items=capital_items,
+        armo_items=armo_items,
+        decomm_items=decomm_items,
+    )
+    fin = FinancialParams(analysis_period_n=project_life)
     results = calculate_lcos(tech, cost, fin)
     print_results(tech, cost, fin, results)
