@@ -296,7 +296,7 @@ class ThermalCapital(Enum):
 # ── Capital Cost 입력 유틸리티 ────────────────────────────────
 
 # STORAGE_CATALOG 코드 → DB 기술명 매핑
-_DB_TECH_MAP: dict[str, str] = {
+DB_TECH_MAP: dict[str, str] = {
     'LFP':    'Lithium-ion LFP',
     'NMC':    'Lithium-ion NMC',
     'VRF':    'Vanadium Redox Flow',
@@ -309,6 +309,9 @@ _DB_TECH_MAP: dict[str, str] = {
     'THERMAL':         'Thermal',
     'CARNOT_CONCRETE': 'Retrofit Carnot (Concrete)',
 }
+
+# DB 기술명 → STORAGE_CATALOG 코드 역방향 매핑
+DB_TO_CODE: dict[str, str] = {v: k for k, v in DB_TECH_MAP.items()}
 
 
 def build_capital_items(tech_code: str, values: dict) -> list[CapitalCostItem]:
@@ -336,6 +339,21 @@ def build_capital_items(tech_code: str, values: dict) -> list[CapitalCostItem]:
     return items
 
 
+def load_db(db_path: str) -> dict:
+    """DB 시트를 읽어 {(tech, yr, mw, hr, estimate): {(cat, param): value}} 반환"""
+    import openpyxl
+    from collections import defaultdict
+    wb = openpyxl.load_workbook(db_path, data_only=True)
+    ws = wb['Database']
+    combos: dict = defaultdict(dict)
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        if row[0] is None:
+            continue
+        tech, yr, mw, hr, est, cat, param, value = row[:8]
+        combos[(tech, yr, mw, hr, est)][(cat, param)] = value
+    return combos
+
+
 def load_capital_from_db(
     tech_code:   str,
     db_path:     str,
@@ -352,7 +370,7 @@ def load_capital_from_db(
     """
     import openpyxl
 
-    db_tech = _DB_TECH_MAP.get(tech_code)
+    db_tech = DB_TECH_MAP.get(tech_code)
     if db_tech is None:
         raise ValueError(f"DB 매핑 없는 기술 코드: '{tech_code}'")
 

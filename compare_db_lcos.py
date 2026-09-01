@@ -6,44 +6,15 @@ DB에 저장된 참조 LCOS 값과 비교한다.  lcos.py 는 수정하지 않�
 """
 
 import sys
-import openpyxl
-from collections import defaultdict
 
 sys.path.insert(0, '.')
 
 from lcos import (
     TechParams, CostParams, FinancialParams,
     CapitalCostItem,
+    DB_TO_CODE, load_db,
     calculate_lcos, build_armo_and_decomm,
 )
-
-# ── DB 기술명 → lcos.py 코드 매핑 ────────────────────────────────
-DB_TO_CODE = {
-    'Lithium-ion LFP':    'LFP',
-    'Lithium-ion NMC':    'NMC',
-    'Vanadium Redox Flow':'VRF',
-    'Zinc':               'ZINC',
-    'Lead Acid':          'LEAD',
-    'Hydrogen':           'H2',
-    'PSH':                'PSH',
-    'CAES':               'CAES',
-    'Gravitational':              'GES',
-    'Thermal':                    'THERMAL',
-    'Retrofit Carnot (Concrete)': 'CARNOT_CONCRETE',
-}
-
-
-def load_db(db_path: str) -> dict:
-    """DB 시트를 읽어 {(tech, yr, mw, hr, estimate): {(cat, param): value}} 반환"""
-    wb = openpyxl.load_workbook(db_path, data_only=True)
-    ws = wb['Database']
-    combos: dict = defaultdict(dict)
-    for row in ws.iter_rows(min_row=2, values_only=True):
-        if row[0] is None:
-            continue
-        tech, yr, mw, hr, est, cat, param, value = row[:8]
-        combos[(tech, yr, mw, hr, est)][(cat, param)] = value
-    return combos
 
 
 def _strip_unit(param_str: str):

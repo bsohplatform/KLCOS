@@ -13,9 +13,9 @@ from flask import Flask, render_template, request, jsonify
 from lcos import (
     TechParams, CostParams, FinancialParams,
     CapitalCostItem, STORAGE_CATALOG, CAPITAL_CATALOG,
+    DB_TO_CODE, load_db as _load_db,
     calculate_lcos, build_armo_and_decomm,
 )
-from compare_db_lcos import load_db as _load_db, DB_TO_CODE
 
 app = Flask(__name__)
 
